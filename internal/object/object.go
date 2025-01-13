@@ -106,4 +106,5 @@ const (
 	ObjTypeBF
 	ObjTypeDequeue
 	ObjTypeHLL
+	ObjTypeStream
 )
