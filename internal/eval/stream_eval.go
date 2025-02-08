@@ -139,7 +139,7 @@ func validateAndParseXAddOrXTrimCommand(args []string, xadd bool) (commnadOpt *s
 				return nil, 0, errors.New("syntax error, MAXLEN and MINID options at the same time are not compatible")
 			}
 
-			streamId, seqGiven, err := stream.ParseStreamId(args[i+1], true, 0)
+			streamId, seqGiven, err := stream.ParseStreamIdXADD(args[i+1], true, 0)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -150,7 +150,7 @@ func validateAndParseXAddOrXTrimCommand(args []string, xadd bool) (commnadOpt *s
 		} else if xadd && strings.EqualFold(opt, "nomkstream") {
 			commandOpt.noMkstream = true
 		} else if xadd {
-			streamId, seqGiven, err := stream.ParseStreamId(args[i+1], true, 0)
+			streamId, seqGiven, err := stream.ParseStreamIdXADD(args[i+1], true, 0)
 			if err != nil {
 				return nil, 0, err
 			}

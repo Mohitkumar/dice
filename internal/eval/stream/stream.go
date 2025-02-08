@@ -103,7 +103,7 @@ func (s *Stream) AppendWithId(id *StreamID, seqGiven bool, value []string) (*Str
 		 * in time. */
 		if s.lastId.ms == id.ms {
 			if s.lastId.seq == math.MaxUint64 {
-				return nil, errors.New("The stream has exhausted the last possible ID")
+				return nil, errors.New("The ID specified in XADD is equal or smaller than the target stream top item")
 			}
 			insertId = s.lastId
 			insertId.seq++

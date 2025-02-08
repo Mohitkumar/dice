@@ -12,7 +12,7 @@ type StreamID struct {
 	seq uint64
 }
 
-func ParseStreamId(id string, strict bool, missingSeq uint64) (*StreamID, bool, error) {
+func ParseStreamIdXADD(id string, strict bool, missingSeq uint64) (*StreamID, bool, error) {
 	seqGiven := true
 	if len(id) > 127 {
 		return nil, seqGiven, errors.New("Invalid stream ID specified as stream command argument")
@@ -55,6 +55,10 @@ func ParseStreamId(id string, strict bool, missingSeq uint64) (*StreamID, bool, 
 		seq = missingSeq
 	}
 	return &StreamID{ms: ms, seq: seq}, seqGiven, nil
+}
+
+func ParseStreamIdXRANGE(startId string, endId string, rev bool) (*StreamID, error) {
+
 }
 
 func (s *StreamID) incr() error {
