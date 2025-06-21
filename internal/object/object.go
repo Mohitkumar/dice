@@ -93,7 +93,8 @@ const (
 	ObjTypeBF
 	ObjTypeDequeue
 	ObjTypeHLL
-	ObjTypeFloat
+	ObjTypeFloat,
+	ObjTypeStream
 )
 
 // String returns the name of the object type as a string
@@ -113,6 +114,7 @@ func (ot ObjectType) String() string {
 		"dequeue",
 		"hll",
 		"float",
+		"stream"
 	}
 
 	if ot < ObjectType(len(names)) {
