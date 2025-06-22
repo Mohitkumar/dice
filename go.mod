@@ -31,7 +31,6 @@ require (
 )
 
 require (
-	github.com/arriqaaq/art v0.1.2
 	github.com/axiomhq/hyperloglog v0.2.0
 	github.com/bytedance/sonic v1.13.2
 	github.com/cespare/xxhash/v2 v2.3.0

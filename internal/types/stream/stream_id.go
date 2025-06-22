@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"encoding/binary"
 	"errors"
 	"math"
 	"strconv"
@@ -12,7 +13,7 @@ type StreamID struct {
 	seq uint64
 }
 
-func ParseStreamIdXADD(id string, strict bool, missingSeq uint64) (*StreamID, bool, error) {
+func ParseStreamId(id string, strict bool, missingSeq uint64) (*StreamID, bool, error) {
 	seqGiven := true
 	if len(id) > 127 {
 		return nil, seqGiven, errors.New("Invalid stream ID specified as stream command argument")
@@ -57,11 +58,27 @@ func ParseStreamIdXADD(id string, strict bool, missingSeq uint64) (*StreamID, bo
 	return &StreamID{ms: ms, seq: seq}, seqGiven, nil
 }
 
-func ParseStreamIdXRANGE(startId string, endId string, rev bool) (*StreamID, error) {
-
+func ParseStreamIdNoStrict(id string, missingSeq uint64) (*StreamID, bool, error) {
+	return ParseStreamId(id, false, missingSeq)
 }
 
-func (s *StreamID) incr() error {
+func ParseStreamIdStrict(id string, missingSeq uint64) (*StreamID, bool, error) {
+	return ParseStreamId(id, true, missingSeq)
+}
+
+func ParseStreamIdXRANGE(id string, missingSeq uint64) (*StreamID, bool, error, bool) {
+	exclude := len(id) > 1 && id[0] == '('
+	if exclude {
+		id = id[1:]
+		streamId, seqGiven, err := ParseStreamIdStrict(id, missingSeq)
+		return streamId, seqGiven, err, exclude
+	} else {
+		streamId, seqGiven, err := ParseStreamIdNoStrict(id, missingSeq)
+		return streamId, seqGiven, err, exclude
+	}
+}
+
+func (s *StreamID) Incr() error {
 	if s.seq == math.MaxUint64 {
 		if s.ms == math.MaxUint64 {
 			s.ms = 0
@@ -77,7 +94,7 @@ func (s *StreamID) incr() error {
 	return nil
 }
 
-func (s *StreamID) decr() error {
+func (s *StreamID) Decr() error {
 	if s.seq == 0 {
 		if s.ms == 0 {
 			return errors.New("streamID underflow")
@@ -97,4 +114,11 @@ func (s *StreamID) IsZero() bool {
 
 func (s *StreamID) String() string {
 	return strconv.FormatUint(s.ms, 10) + "-" + strconv.FormatUint(s.seq, 10)
+}
+
+func (s *StreamID) Encode() []byte {
+	b := make([]byte, 16)
+	binary.BigEndian.PutUint64(b, s.ms)
+	binary.BigEndian.PutUint64(b[8:], s.seq)
+	return b
 }

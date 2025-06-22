@@ -8,34 +8,29 @@ import (
 
 	"github.com/dicedb/dice/internal/object"
 
-	"github.com/arriqaaq/art"
 	diceerrors "github.com/dicedb/dice/internal/errors"
+	"github.com/dicedb/dice/internal/rax"
 )
 
 type Stream struct {
-	rax             *art.Tree
+	rax             *rax.Tree
 	length          uint64
 	firstId         *StreamID
 	lastId          *StreamID
 	maxDeletedEntry *StreamID
 	totalEntries    uint64
-	cgroups         *art.Tree
-}
-
-type streamIterator struct {
-	stream      *Stream
-	raxIterator *art.Iterator
+	cgroups         *rax.Tree
 }
 
 type streamCG struct {
 	lastId    StreamID
-	pel       *art.Node
-	consumers *art.Tree
+	pel       *rax.Tree
+	consumers *rax.Tree
 }
 
 type streamConsumer struct {
 	name       string
-	pel        *art.Node
+	pel        *rax.Tree
 	seenTime   uint64
 	activeTime uint64
 }
@@ -48,7 +43,7 @@ type streamNACK struct {
 
 func New() *Stream {
 	return &Stream{
-		rax:             art.NewTree(),
+		rax:             rax.NewTree(),
 		length:          0,
 		firstId:         &StreamID{ms: 0, seq: 0},
 		lastId:          &StreamID{ms: 0, seq: 0},
@@ -72,23 +67,9 @@ func (s *Stream) Length() uint64 {
 	return s.length
 }
 
-func (s *Stream) encodeStramId(sId *StreamID) []byte {
-	b := make([]byte, 16)
-	binary.BigEndian.PutUint64(b, sId.ms)
-	binary.BigEndian.PutUint64(b[8:], sId.seq)
-	return b
-}
-
-func (s *StreamID) decodeStramId(b []byte) *StreamID {
-	return &StreamID{
-		ms:  binary.BigEndian.Uint64(b),
-		seq: binary.BigEndian.Uint64(b[8:]),
-	}
-}
-
 func (s *Stream) Append(value []string) (*StreamID, error) {
 	id, err := s.NextID()
-	s.rax.Insert(s.encodeStramId(id), value)
+	s.rax.Insert(id.Encode(), value)
 	return id, err
 }
 
@@ -111,21 +92,41 @@ func (s *Stream) AppendWithId(id *StreamID, seqGiven bool, value []string) (*Str
 			insertId = id
 		}
 	}
-	s.rax.Insert(s.encodeStramId(insertId), value)
+	s.rax.Insert(insertId.Encode(), value)
 	return insertId, nil
 }
 
+func (s *Stream) Decode(b []byte) *StreamID {
+	return &StreamID{
+		ms:  binary.BigEndian.Uint64(b),
+		seq: binary.BigEndian.Uint64(b[8:]),
+	}
+}
 func (s *Stream) NextID() (*StreamID, error) {
 	ms := uint64(time.Now().UnixMilli())
 	if ms > s.lastId.ms {
 		return &StreamID{ms: ms, seq: 0}, nil
 	} else {
 		sid := &StreamID{ms: s.lastId.ms, seq: s.lastId.seq}
-		err := sid.incr()
+		err := sid.Incr()
 		return sid, err
 	}
 }
 
 func (s *Stream) IsExhasusted() bool {
 	return s.lastId.ms == math.MaxUint64 && s.lastId.seq == math.MaxUint64
+}
+
+func (s *Stream) Range(start *StreamID, end *StreamID, cg *streamCG, consumer *streamConsumer, rev bool) {
+	iterator := NewStreamIterator(s, rev)
+	iterator.Init(start, end)
+	for iterator.HasNext() {
+		next := iterator.Next()
+		if cg != nil {
+			cg.Append(next)
+		}
+		if consumer != nil {
+			consumer.Append(next)
+		}
+	}
 }
