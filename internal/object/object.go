@@ -93,7 +93,7 @@ const (
 	ObjTypeBF
 	ObjTypeDequeue
 	ObjTypeHLL
-	ObjTypeFloat,
+	ObjTypeFloat
 	ObjTypeStream
 )
 
@@ -114,7 +114,7 @@ func (ot ObjectType) String() string {
 		"dequeue",
 		"hll",
 		"float",
-		"stream"
+		"stream",
 	}
 
 	if ot < ObjectType(len(names)) {

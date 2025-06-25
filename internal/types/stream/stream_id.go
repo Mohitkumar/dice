@@ -51,7 +51,7 @@ func ParseStreamId(id string, strict bool, missingSeq uint64) (*StreamID, bool, 
 	} else {
 		ms, err = strconv.ParseUint(id, 10, 64)
 		if err != nil {
-			return nil, seqGiven, errors.New("Invalid stream ID specified as stream command argument")
+			return nil, seqGiven, errors.New("Invalid stream ID specified as stream command argument ll")
 		}
 		seq = missingSeq
 	}
@@ -121,4 +121,18 @@ func (s *StreamID) Encode() []byte {
 	binary.BigEndian.PutUint64(b, s.ms)
 	binary.BigEndian.PutUint64(b[8:], s.seq)
 	return b
+}
+
+func (s *StreamID) Compare(other *StreamID) int {
+	if s.ms < other.ms {
+		return -1
+	} else if s.ms > other.ms {
+		return 1
+	}
+	if s.seq < other.seq {
+		return -1
+	} else if s.seq > other.seq {
+		return 1
+	}
+	return 0
 }

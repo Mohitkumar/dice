@@ -875,17 +875,3 @@ func (t *Tree) scan(current *Node, key []byte, callback Callback) {
 		depth++
 	}
 }
-
-func nextChild(children []*Node, idx int) (int, *Node) {
-	if idx == nullIdx {
-		idx = 0
-	}
-	for i := idx; i < len(children); i++ {
-		child := children[i]
-		if child != nil {
-			return i + 1, child
-		}
-	}
-
-	return 0, nil
-}

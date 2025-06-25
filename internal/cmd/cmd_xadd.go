@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/dicedb/dice/internal/errors"
+	"github.com/dicedb/dice/internal/object"
 	"github.com/dicedb/dice/internal/shardmanager"
 	dsstore "github.com/dicedb/dice/internal/store"
 	"github.com/dicedb/dice/internal/types/stream"
@@ -100,9 +101,8 @@ func evalXADD(c *Cmd, s *dsstore.Store) (*CmdRes, error) {
 	if len(c.C.Args) < 4 {
 		return XADDResNilRes, errors.ErrWrongArgumentCount("XADD")
 	}
-
 	key := c.C.Args[0]
-	commandOpt, fieldPos, err := validateAndParseXAddOrXTrimCommand(c.C.Args[1:], true)
+	commandOpt, fieldPos, err := validateAndParseXAddOrXTrimCommand(c.C.Args, true)
 	if err != nil {
 		return XADDResNilRes, err
 	}
@@ -115,7 +115,7 @@ func evalXADD(c *Cmd, s *dsstore.Store) (*CmdRes, error) {
 	 * a new stream and have streamAppendItem fail, leaving an empty key in the
 	 * database. */
 	if commandOpt.idGiven && commandOpt.seqGiven && commandOpt.id.IsZero() {
-		return XADDResNilRes, errors.ErrWrongArgumentCount("The ID specified in XADD must be greater than 0-0")
+		return XADDResNilRes, errors.NewErr("The ID specified in XADD must be greater than 0-0")
 	}
 	if commandOpt.noMkstream {
 		_, err := getStream(s, key)
@@ -154,7 +154,7 @@ func executeXADD(c *Cmd, sm *shardmanager.ShardManager) (*CmdRes, error) {
 }
 
 func validateAndParseXAddOrXTrimCommand(args []string, xadd bool) (commnadOpt *streamXaddCommandOpt, fieldPos int, err error) {
-	i := 0
+	i := 1
 	commandOpt := &streamXaddCommandOpt{}
 	commandOpt.seqGiven = true
 	commandOpt.idGiven = false
@@ -195,7 +195,7 @@ func validateAndParseXAddOrXTrimCommand(args []string, xadd bool) (commnadOpt *s
 		} else if xadd && strings.EqualFold(opt, "nomkstream") {
 			commandOpt.noMkstream = true
 		} else if xadd {
-			streamId, seqGiven, err := stream.ParseStreamId(args[i+1], true, 0)
+			streamId, seqGiven, err := stream.ParseStreamId(args[i], true, 0)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -219,7 +219,10 @@ func getOrCreateStream(store *dsstore.Store, key string) (*stream.Stream, error)
 		}
 		return stream, nil
 	}
-	return stream.New(), nil
+	stream := stream.New()
+	obj = store.NewObj(stream, -1, object.ObjTypeStream)
+	store.Put(key, obj)
+	return stream, nil
 }
 
 func getStream(store *dsstore.Store, key string) (*stream.Stream, error) {

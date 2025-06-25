@@ -51,192 +51,303 @@ const (
 
 // Iterator pattern
 func (t *Tree) Iterator() Iterator {
-	return &iterator{
+	it := &iterator{
 		tree:     t,
-		nextNode: t.root,
+		nextNode: nil,
 		levelIdx: 0,
-		levels:   []*level{{t.root, nullIdx}},
+		levels:   nil,
 		eof:      false,
 		reverse:  false,
 	}
+	it.seekToExtreme(false)
+	return it
 }
 
 // Reverse returns a reverse iterator
 func (t *Tree) ReverseIterator() Iterator {
-	var startNode *Node
-	if t.root != nil {
-		startNode = t.root.maximum()
-	}
-	return &iterator{
+	it := &iterator{
 		tree:     t,
-		nextNode: startNode,
+		nextNode: nil,
 		levelIdx: 0,
-		levels:   []*level{{t.root, nullIdx}},
+		levels:   nil,
 		eof:      false,
 		reverse:  true,
 	}
+	it.seekToExtreme(true)
+	return it
 }
 
 func (ti *iterator) HasNext() bool {
 	return ti != nil && ti.nextNode != nil && !ti.eof
 }
 
+// seekToExtreme sets up the stack to the min (reverse=false) or max (reverse=true) leaf
+func (ti *iterator) seekToExtreme(reverse bool) {
+	ti.levels = nil
+	ti.levelIdx = 0
+	cur := ti.tree.root
+	if cur == nil {
+		ti.nextNode = nil
+		ti.eof = true
+		return
+	}
+	for !cur.IsLeaf() {
+		in := cur.innerNode
+		var child *Node
+		var idx int
+		if reverse {
+			switch cur.Type() {
+			case Node4, Node16:
+				idx = in.size - 1
+				child = in.children[idx]
+			case Node48:
+				idx = len(in.keys) - 1
+				for idx >= 0 && in.keys[byte(idx)] == 0 {
+					idx--
+				}
+				if idx >= 0 {
+					child = in.children[in.keys[byte(idx)]-1]
+				}
+			case Node256:
+				idx = len(in.children) - 1
+				for idx >= 0 && in.children[idx] == nil {
+					idx--
+				}
+				if idx >= 0 {
+					child = in.children[idx]
+				}
+			}
+		} else {
+			switch cur.Type() {
+			case Node4, Node16:
+				idx = 0
+				child = in.children[idx]
+			case Node48:
+				idx = 0
+				for idx < len(in.keys) && in.keys[byte(idx)] == 0 {
+					idx++
+				}
+				if idx < len(in.keys) {
+					child = in.children[in.keys[byte(idx)]-1]
+				}
+			case Node256:
+				idx = 0
+				for idx < len(in.children) && in.children[idx] == nil {
+					idx++
+				}
+				if idx < len(in.children) {
+					child = in.children[idx]
+				}
+			}
+		}
+		ti.levels = append(ti.levels, &level{cur, idx})
+		cur = child
+	}
+	ti.levels = append(ti.levels, &level{cur, nullIdx})
+	ti.levelIdx = len(ti.levels) - 1
+	ti.nextNode = cur
+	ti.eof = false
+}
+
 func (ti *iterator) Next() *Node {
-	if !ti.HasNext() {
+	if ti.eof || ti.nextNode == nil {
 		return nil
 	}
-
 	cur := ti.nextNode
 	if ti.reverse {
 		ti.nextReverse()
 	} else {
 		ti.next()
 	}
-
 	return cur
 }
 
-func (ti *iterator) addLevel() {
-	newlevel := make([]*level, ti.levelIdx+10)
-	copy(newlevel, ti.levels)
-	ti.levels = newlevel
-}
-
 func (ti *iterator) next() {
-	for {
-		var nextNode *Node
-		nextIdx := nullIdx
-
-		curNode := ti.levels[ti.levelIdx].node
-		curIndex := ti.levels[ti.levelIdx].index
-
-		in := curNode.innerNode
-		switch curNode.Type() {
-		case Node4:
-			nextIdx, nextNode = nextChild(in.children, curIndex)
-		case Node16:
-			nextIdx, nextNode = nextChild(in.children, curIndex)
-		case Node48:
-			for i := curIndex; i < len(in.keys); i++ {
-				index := in.keys[byte(i)]
-				child := in.children[index]
-				if child != nil {
-					nextIdx = i + 1
-					nextNode = child
-					break
-				}
-			}
-		case Node256:
-			nextIdx, nextNode = nextChild(in.children, curIndex)
-		}
-
-		if nextNode == nil {
-			if ti.levelIdx > 0 {
-				ti.levelIdx--
-			} else {
-				ti.nextNode = nil
-				ti.eof = true
-				return
-			}
-		} else {
-			ti.levels[ti.levelIdx].index = nextIdx
-			ti.nextNode = nextNode
-
-			if ti.levelIdx+1 >= cap(ti.levels) {
-				ti.addLevel()
-			}
-
-			ti.levelIdx++
-			ti.levels[ti.levelIdx] = &level{nextNode, nullIdx}
-			return
-		}
-	}
-}
-
-// nextReverse implements reverse iteration
-func (ti *iterator) nextReverse() {
-	for {
-		var nextNode *Node
-		nextIdx := nullIdx
-
-		curNode := ti.levels[ti.levelIdx].node
-		curIndex := ti.levels[ti.levelIdx].index
-
-		if curNode.IsLeaf() {
-			if ti.levelIdx > 0 {
-				ti.levelIdx--
-			} else {
-				ti.nextNode = nil
-				ti.eof = true
-				return
-			}
+	for ti.levelIdx >= 0 {
+		lvl := ti.levels[ti.levelIdx]
+		node := lvl.node
+		if node.IsLeaf() {
+			ti.levelIdx--
 			continue
 		}
-
-		in := curNode.innerNode
-		switch curNode.Type() {
+		in := node.innerNode
+		var found bool
+		var nextIdx int
+		var nextNode *Node
+		switch node.Type() {
 		case Node4, Node16:
-			if curIndex == nullIdx {
-				curIndex = in.size - 1
-			}
-			for i := curIndex; i >= 0; i-- {
-				child := in.children[i]
-				if child != nil {
-					nextIdx = i - 1
-					nextNode = child
+			for i := lvl.index + 1; i < in.size; i++ {
+				if in.children[i] != nil {
+					nextIdx = i
+					nextNode = in.children[i]
+					found = true
 					break
 				}
 			}
 		case Node48:
-			if curIndex == nullIdx {
-				curIndex = len(in.keys) - 1
-			}
-			for i := curIndex; i >= 0; i-- {
-				index := in.keys[byte(i)]
-				if index > 0 {
-					child := in.children[index-1]
+			for i := lvl.index + 1; i < len(in.keys); i++ {
+				idx := in.keys[byte(i)]
+				if idx > 0 {
+					child := in.children[idx-1]
 					if child != nil {
-						nextIdx = i - 1
+						nextIdx = i
 						nextNode = child
+						found = true
 						break
 					}
 				}
 			}
 		case Node256:
-			if curIndex == nullIdx {
-				curIndex = len(in.children) - 1
-			}
-			for i := curIndex; i >= 0; i-- {
-				child := in.children[i]
-				if child != nil {
-					nextIdx = i - 1
-					nextNode = child
+			for i := lvl.index + 1; i < len(in.children); i++ {
+				if in.children[i] != nil {
+					nextIdx = i
+					nextNode = in.children[i]
+					found = true
 					break
 				}
 			}
 		}
-
-		if nextNode == nil {
-			if ti.levelIdx > 0 {
-				ti.levelIdx--
-			} else {
-				ti.nextNode = nil
-				ti.eof = true
-				return
-			}
-		} else {
+		if found {
 			ti.levels[ti.levelIdx].index = nextIdx
-			ti.nextNode = nextNode
-
-			if ti.levelIdx+1 >= cap(ti.levels) {
-				ti.addLevel()
-			}
-
 			ti.levelIdx++
-			ti.levels[ti.levelIdx] = &level{nextNode, nullIdx}
+			if ti.levelIdx < len(ti.levels) {
+				ti.levels[ti.levelIdx] = &level{nextNode, nullIdx}
+			} else {
+				ti.levels = append(ti.levels, &level{nextNode, nullIdx})
+			}
+			ti.nextNode = ti.descendToLeaf()
 			return
+		} else {
+			ti.levelIdx--
 		}
 	}
+	ti.nextNode = nil
+	ti.eof = true
+}
+
+func (ti *iterator) nextReverse() {
+	for ti.levelIdx >= 0 {
+		lvl := ti.levels[ti.levelIdx]
+		node := lvl.node
+		if node.IsLeaf() {
+			ti.levelIdx--
+			continue
+		}
+		in := node.innerNode
+		var found bool
+		var prevIdx int
+		var prevNode *Node
+		switch node.Type() {
+		case Node4, Node16:
+			for i := lvl.index - 1; i >= 0; i-- {
+				if in.children[i] != nil {
+					prevIdx = i
+					prevNode = in.children[i]
+					found = true
+					break
+				}
+			}
+		case Node48:
+			for i := lvl.index - 1; i >= 0; i-- {
+				idx := in.keys[byte(i)]
+				if idx > 0 {
+					child := in.children[idx-1]
+					if child != nil {
+						prevIdx = i
+						prevNode = child
+						found = true
+						break
+					}
+				}
+			}
+		case Node256:
+			for i := lvl.index - 1; i >= 0; i-- {
+				if in.children[i] != nil {
+					prevIdx = i
+					prevNode = in.children[i]
+					found = true
+					break
+				}
+			}
+		}
+		if found {
+			ti.levels[ti.levelIdx].index = prevIdx
+			ti.levelIdx++
+			if ti.levelIdx < len(ti.levels) {
+				ti.levels[ti.levelIdx] = &level{prevNode, nullIdx}
+			} else {
+				ti.levels = append(ti.levels, &level{prevNode, nullIdx})
+			}
+			ti.nextNode = ti.descendToLeaf()
+			return
+		} else {
+			ti.levelIdx--
+		}
+	}
+	ti.nextNode = nil
+	ti.eof = true
+}
+
+// descendToLeaf walks down from the current stack top to the next leaf, updating the stack
+func (ti *iterator) descendToLeaf() *Node {
+	cur := ti.levels[ti.levelIdx].node
+	for !cur.IsLeaf() {
+		in := cur.innerNode
+		var child *Node
+		var idx int
+		switch cur.Type() {
+		case Node4, Node16:
+			idx = 0
+			if ti.reverse {
+				idx = in.size - 1
+			}
+			child = in.children[idx]
+		case Node48:
+			if ti.reverse {
+				idx = len(in.keys) - 1
+				for idx >= 0 && in.keys[byte(idx)] == 0 {
+					idx--
+				}
+				if idx >= 0 {
+					child = in.children[in.keys[byte(idx)]-1]
+				}
+			} else {
+				idx = 0
+				for idx < len(in.keys) && in.keys[byte(idx)] == 0 {
+					idx++
+				}
+				if idx < len(in.keys) {
+					child = in.children[in.keys[byte(idx)]-1]
+				}
+			}
+		case Node256:
+			if ti.reverse {
+				idx = len(in.children) - 1
+				for idx >= 0 && in.children[idx] == nil {
+					idx--
+				}
+				if idx >= 0 {
+					child = in.children[idx]
+				}
+			} else {
+				idx = 0
+				for idx < len(in.children) && in.children[idx] == nil {
+					idx++
+				}
+				if idx < len(in.children) {
+					child = in.children[idx]
+				}
+			}
+		}
+		ti.levelIdx++
+		if ti.levelIdx < len(ti.levels) {
+			ti.levels[ti.levelIdx] = &level{child, nullIdx}
+		} else {
+			ti.levels = append(ti.levels, &level{child, nullIdx})
+		}
+		cur = child
+	}
+	return cur
 }
 
 // EOF returns true if the iterator has reached the end
@@ -246,81 +357,64 @@ func (ti *iterator) EOF() bool {
 
 // SeekToFirst positions the iterator at the first element
 func (ti *iterator) SeekToFirst() {
-	if ti.tree.root == nil {
-		ti.eof = true
-		ti.nextNode = nil
-		return
-	}
-
-	ti.reset()
-	ti.nextNode = ti.tree.root.minimum()
-	ti.eof = false
+	ti.seekToExtreme(false)
 }
 
 // SeekToLast positions the iterator at the last element
 func (ti *iterator) SeekToLast() {
-	if ti.tree.root == nil {
-		ti.eof = true
-		ti.nextNode = nil
-		return
-	}
-
-	ti.reset()
-	ti.nextNode = ti.tree.root.maximum()
-	ti.eof = false
+	ti.seekToExtreme(true)
 }
 
 // Reverse returns a reverse iterator
 func (ti *iterator) Reverse() Iterator {
-	reverseIter := &iterator{
+	it := &iterator{
 		tree:     ti.tree,
+		nextNode: nil,
 		levelIdx: 0,
-		levels:   []*level{{ti.tree.root, nullIdx}},
+		levels:   nil,
 		eof:      false,
 		reverse:  !ti.reverse,
 	}
-	if !ti.reverse {
-		// Forward to reverse: start at maximum
-		if ti.tree.root != nil {
-			reverseIter.nextNode = ti.tree.root.maximum()
+	if ti.nextNode == nil {
+		if !ti.reverse {
+			it.seekToExtreme(true)
+		} else {
+			it.seekToExtreme(false)
 		}
-	} else {
-		// Reverse to forward: start at minimum
-		if ti.tree.root != nil {
-			reverseIter.nextNode = ti.tree.root.minimum()
-		}
+		return it
 	}
-	return reverseIter
+	// Set up the stack to the current node
+	it.levels = make([]*level, len(ti.levels))
+	for i, lvl := range ti.levels {
+		it.levels[i] = &level{lvl.node, lvl.index}
+	}
+	it.levelIdx = ti.levelIdx
+	it.eof = ti.eof
+	// For reverse, set nextNode to the previous node in reverse order
+	if !ti.reverse {
+		// Forward to reverse: set up so that the next call to Next yields the previous node
+		it.reverse = true
+		it.nextNode = ti.levels[it.levelIdx].node
+		it.nextReverse() // move to previous node
+	} else {
+		// Reverse to forward: set up so that the next call to Next yields the next node
+		it.reverse = false
+		it.nextNode = ti.levels[it.levelIdx].node
+		it.next() // move to next node
+	}
+	return it
 }
 
 // SeekToFirstReverse positions the iterator at the first element in reverse order (i.e., the maximum)
 func (ti *iterator) SeekToFirstReverse() bool {
-	if ti.tree.root == nil {
-		ti.eof = true
-		ti.nextNode = nil
-		return false
-	}
-
-	ti.reset()
-	ti.reverse = true
-	ti.nextNode = ti.tree.root.maximum()
-	ti.eof = false
-	return true
+	ti.seekToExtreme(true)
+	return !ti.EOF()
 }
 
 // SeekToLastReverse positions the iterator at the last element in reverse order (i.e., the minimum)
 func (ti *iterator) SeekToLastReverse() bool {
-	if ti.tree.root == nil {
-		ti.eof = true
-		ti.nextNode = nil
-		return false
-	}
-
-	ti.reset()
-	ti.reverse = true
-	ti.nextNode = ti.tree.root.minimum()
-	ti.eof = false
-	return true
+	ti.seekToExtreme(false)
+	return !ti.EOF()
 }
 
 // SeekReverse positions the iterator at the specified key in reverse order
@@ -330,25 +424,15 @@ func (ti *iterator) SeekReverse(key []byte) bool {
 
 // SeekWithOperationReverse positions the iterator based on the specified operation in reverse order
 func (ti *iterator) SeekWithOperationReverse(key []byte, operation string) bool {
-	// Convert operations for reverse iteration
-	reverseOp := operation
-	switch operation {
-	case OP_GE:
-		reverseOp = OP_LE
-	case OP_LE:
-		reverseOp = OP_GE
-	case OP_GT:
-		reverseOp = OP_LT
-	case OP_LT:
-		reverseOp = OP_GT
-	case OP_START:
-		reverseOp = OP_END
-	case OP_END:
-		reverseOp = OP_START
-	}
-
 	ti.reverse = true
-	return ti.seekWithOperation(key, ti.getReverseOperation(reverseOp))
+	if operation == OP_START {
+		ti.seekToExtreme(true)
+		return !ti.EOF()
+	} else if operation == OP_END {
+		ti.seekToExtreme(false)
+		return !ti.EOF()
+	}
+	return ti.seekWithOperation(key, ti.getReverseOperation(operation))
 }
 
 // getReverseOperation converts an operation to its reverse equivalent
@@ -399,6 +483,119 @@ func (ti *iterator) SeekLessThan(key []byte) bool {
 	return ti.seekWithOperation(key, SEEK_LT)
 }
 
+// Helper to reconstruct the stack from root to a given node
+func (ti *iterator) buildStackToNode(target *Node) {
+	ti.levels = nil
+	ti.levelIdx = 0
+	cur := ti.tree.root
+	if cur == nil || target == nil {
+		ti.nextNode = nil
+		ti.eof = true
+		return
+	}
+	for !cur.IsLeaf() {
+		in := cur.innerNode
+		var idx int
+		var found bool
+		switch cur.Type() {
+		case Node4, Node16:
+			for i := 0; i < in.size; i++ {
+				if in.children[i] == nil {
+					continue
+				}
+				if in.children[i] == target || isDescendant(in.children[i], target) {
+					idx = i
+					found = true
+					break
+				}
+			}
+		case Node48:
+			for i := 0; i < len(in.keys); i++ {
+				ix := in.keys[byte(i)]
+				if ix > 0 {
+					child := in.children[ix-1]
+					if child == nil {
+						continue
+					}
+					if child == target || isDescendant(child, target) {
+						idx = i
+						found = true
+						break
+					}
+				}
+			}
+		case Node256:
+			for i := 0; i < len(in.children); i++ {
+				child := in.children[i]
+				if child == nil {
+					continue
+				}
+				if child == target || isDescendant(child, target) {
+					idx = i
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			break
+		}
+		ti.levels = append(ti.levels, &level{cur, idx})
+		cur = getChildByIndex(cur, idx)
+	}
+	ti.levels = append(ti.levels, &level{target, nullIdx})
+	ti.levelIdx = len(ti.levels) - 1
+	// Set nextNode to the target
+	ti.nextNode = target
+	ti.eof = false
+}
+
+// Helper to check if descendant
+func isDescendant(node, target *Node) bool {
+	if node == nil {
+		return false
+	}
+	if node == target {
+		return true
+	}
+	if node.IsLeaf() {
+		return false
+	}
+	in := node.innerNode
+	for _, child := range in.children {
+		if isDescendant(child, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper to get child by index for a node
+func getChildByIndex(node *Node, idx int) *Node {
+	if node == nil || node.IsLeaf() {
+		return nil
+	}
+	in := node.innerNode
+	switch node.Type() {
+	case Node4, Node16:
+		if idx >= 0 && idx < in.size {
+			return in.children[idx]
+		}
+	case Node48:
+		if idx >= 0 && idx < len(in.keys) {
+			ix := in.keys[byte(idx)]
+			if ix > 0 {
+				return in.children[ix-1]
+			}
+		}
+	case Node256:
+		if idx >= 0 && idx < len(in.children) {
+			return in.children[idx]
+		}
+	}
+	return nil
+}
+
 // seekWithOperation implements the core seeking logic with different operations
 func (ti *iterator) seekWithOperation(key []byte, operation int) bool {
 	if ti.tree.root == nil {
@@ -419,27 +616,38 @@ func (ti *iterator) seekWithOperation(key []byte, operation int) bool {
 		// Key not found, handle based on operation
 		switch operation {
 		case SEEK_GE, SEEK_GT:
-			// Find the next key greater than the target
-			ti.nextNode = ti.findNextGreater(ti.tree.root, searchKey, 0)
-		case SEEK_LE, SEEK_LT:
-			// Find the previous key less than the target
-			ti.nextNode = ti.findPrevLess(ti.tree.root, searchKey, 0)
+			n := ti.findNextGreater(ti.tree.root, searchKey, 0)
+			ti.buildStackToNode(n)
+			return n != nil
+		case SEEK_LE:
+			n := ti.findPrevLess(ti.tree.root, searchKey, 0, true)
+			ti.buildStackToNode(n)
+			return n != nil
+		case SEEK_LT:
+			n := ti.findPrevLess(ti.tree.root, searchKey, 0, false)
+			ti.buildStackToNode(n)
+			return n != nil
 		}
 	} else {
 		// Key found, handle based on operation
 		switch operation {
 		case SEEK_EQ:
-			ti.nextNode = targetNode
+			ti.buildStackToNode(targetNode)
+			return true
 		case SEEK_GE:
-			ti.nextNode = targetNode
+			ti.buildStackToNode(targetNode)
+			return true
 		case SEEK_GT:
-			// Find the next key greater than the target
-			ti.nextNode = ti.findNextGreater(ti.tree.root, searchKey, 0)
+			n := ti.findNextGreater(ti.tree.root, searchKey, 0)
+			ti.buildStackToNode(n)
+			return n != nil
 		case SEEK_LE:
-			ti.nextNode = targetNode
+			ti.buildStackToNode(targetNode)
+			return true
 		case SEEK_LT:
-			// Find the previous key less than the target
-			ti.nextNode = ti.findPrevLess(ti.tree.root, searchKey, 0)
+			n := ti.findPrevLess(ti.tree.root, searchKey, 0, false)
+			ti.buildStackToNode(n)
+			return n != nil
 		}
 	}
 
@@ -589,13 +797,16 @@ func (ti *iterator) findNextChildGreater(in *innerNode, key byte) *Node {
 }
 
 // findPrevLess finds the previous key less than the target
-func (ti *iterator) findPrevLess(current *Node, key []byte, depth int) *Node {
+func (ti *iterator) findPrevLess(current *Node, key []byte, depth int, allowEqual bool) *Node {
 	if current == nil {
 		return nil
 	}
 
 	if current.IsLeaf() {
-		if bytes.Compare(current.leaf.key, key) < 0 {
+		cmp := bytes.Compare(current.leaf.key, key)
+		if cmp < 0 {
+			return current
+		} else if allowEqual && cmp == 0 {
 			return current
 		}
 		return nil
@@ -655,7 +866,7 @@ func (ti *iterator) findPrevLess(current *Node, key []byte, depth int) *Node {
 	}
 
 	// Continue searching in the child
-	result := ti.findPrevLess(prevChild, key, depth+1)
+	result := ti.findPrevLess(prevChild, key, depth+1, allowEqual)
 	if result != nil {
 		return result
 	}

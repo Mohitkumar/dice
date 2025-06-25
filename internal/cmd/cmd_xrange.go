@@ -92,7 +92,7 @@ var (
 	XRANGEResNilRes = newXRANGERes(make([]string, 0), make([][]string, 0))
 )
 
-func evalRANGE(c *Cmd, s *dsstore.Store) (*CmdRes, error) {
+func evalXRANGE(c *Cmd, s *dsstore.Store) (*CmdRes, error) {
 	if len(c.C.Args) < 4 {
 		return XRANGEResNilRes, errors.ErrWrongArgumentCount("XRANGE")
 	}
@@ -145,8 +145,9 @@ func evalRANGE(c *Cmd, s *dsstore.Store) (*CmdRes, error) {
 		if err != nil {
 			return XRANGEResNilRes, errors.ErrInvalidSyntax("XRANGE")
 		}
+		ids, values := stream.Range(startId, endId, nil, nil, false)
+		return newXRANGERes(ids, values), nil
 	}
-
 }
 
 func executeXRANGE(c *Cmd, sm *shardmanager.ShardManager) (*CmdRes, error) {
@@ -155,5 +156,5 @@ func executeXRANGE(c *Cmd, sm *shardmanager.ShardManager) (*CmdRes, error) {
 	}
 
 	shard := sm.GetShardForKey(c.C.Args[0])
-	return evalRANGE(c, shard.Thread.Store())
+	return evalXRANGE(c, shard.Thread.Store())
 }

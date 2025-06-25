@@ -26,9 +26,9 @@ func (s *streamIterator) HasNext() bool {
 	return s.raxIterator.HasNext()
 }
 
-func (s *streamIterator) Next() (*StreamID, []byte) {
+func (s *streamIterator) Next() (*StreamID, []string) {
 	next := s.raxIterator.Next()
-	return s.stream.Decode(next.Key()), next.Value().([]byte)
+	return s.stream.Decode(next.Key()), next.Value().([]string)
 }
 
 func (s *streamIterator) Init(start *StreamID, end *StreamID) {

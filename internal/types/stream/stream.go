@@ -68,12 +68,22 @@ func (s *Stream) Length() uint64 {
 }
 
 func (s *Stream) Append(value []string) (*StreamID, error) {
+	if s.IsExhasusted() {
+		return nil, errors.New("The stream has exhausted the last possible ID,unable to add more items")
+	}
 	id, err := s.NextID()
 	s.rax.Insert(id.Encode(), value)
+	s.lastId = id
 	return id, err
 }
 
 func (s *Stream) AppendWithId(id *StreamID, seqGiven bool, value []string) (*StreamID, error) {
+	if s.IsExhasusted() {
+		return nil, errors.New("The stream has exhausted the last possible ID,unable to add more items")
+	}
+	if id.IsZero() {
+		return nil, errors.New("The ID specified in XADD must be greater than 0-0")
+	}
 	var insertId *StreamID
 	if seqGiven {
 		insertId = id
@@ -92,7 +102,11 @@ func (s *Stream) AppendWithId(id *StreamID, seqGiven bool, value []string) (*Str
 			insertId = id
 		}
 	}
+	if insertId.Compare(s.lastId) <= 0 {
+		return nil, errors.New("The ID specified in XADD is equal or smaller than the target stream top item")
+	}
 	s.rax.Insert(insertId.Encode(), value)
+	s.lastId = insertId
 	return insertId, nil
 }
 
@@ -117,16 +131,15 @@ func (s *Stream) IsExhasusted() bool {
 	return s.lastId.ms == math.MaxUint64 && s.lastId.seq == math.MaxUint64
 }
 
-func (s *Stream) Range(start *StreamID, end *StreamID, cg *streamCG, consumer *streamConsumer, rev bool) {
+func (s *Stream) Range(start *StreamID, end *StreamID, cg *streamCG, consumer *streamConsumer, rev bool) ([]string, [][]string) {
 	iterator := NewStreamIterator(s, rev)
 	iterator.Init(start, end)
+	ids := make([]string, 0)
+	values := make([][]string, 0)
 	for iterator.HasNext() {
-		next := iterator.Next()
-		if cg != nil {
-			cg.Append(next)
-		}
-		if consumer != nil {
-			consumer.Append(next)
-		}
+		id, value := iterator.Next()
+		ids = append(ids, string(id.Encode()))
+		values = append(values, value)
 	}
+	return ids, values
 }
